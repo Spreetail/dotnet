@@ -20,7 +20,7 @@
             get
             {
                 if (connectionString == null)
-                    connectionString = "Data Source = " + HttpContext.Current.Server.MapPath("~/App_Data/TestMiniProfiler.sqlite");
+                    connectionString = @"Data Source = C:\src\miniprofilerdotnet\Sample.Wcf\App_Data\TestMiniProfiler.sqlite";
                 
                 return connectionString;
             }

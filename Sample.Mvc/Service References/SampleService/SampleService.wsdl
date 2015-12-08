@@ -109,7 +109,7 @@
   </wsdl:binding>
   <wsdl:service name="SampleService">
     <wsdl:port name="BasicHttpBinding_ISampleService" binding="tns:BasicHttpBinding_ISampleService">
-      <soap:address location="http://localhost:54025/SampleService.svc" />
+      <soap:address location="http://miniwcflocal/SampleService.svc" />
     </wsdl:port>
   </wsdl:service>
 </wsdl:definitions>
