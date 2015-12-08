@@ -108,10 +108,9 @@ namespace StackExchange.Profiling.MongoDB.Driver
                 CustomLinksJson = profiler.CustomLinksJson,
                 ClientTimingsRedirectCounts = profiler.ClientTimings != null ? profiler.ClientTimings.RedirectCount : (int?)null
             };
-            var result = Profilers.ReplaceOne(x=>x.Id == profiler.Id, miniProfilerPoco, new UpdateOptions() { IsUpsert = true });
-            if (!result.IsAcknowledged)
+            var result = Profilers.ReplaceOneAsync(x=>x.Id == profiler.Id, miniProfilerPoco, new UpdateOptions() { IsUpsert = true }).Result;
+            if (result.IsAcknowledged)
             {
-                //throw an exception??
                 if (result.UpsertedId != null)
                 {
                     SaveTiming(profiler.Root);
@@ -135,7 +134,7 @@ namespace StackExchange.Profiling.MongoDB.Driver
         }
 
         private IEnumerable<TimingPoco> MapTimings(Timing rootTiming)
-        {
+        {   
             return RecursiveSelect(rootTiming.Children, x => x.Children).Select(MapTiming);
         }
 
@@ -189,10 +188,12 @@ namespace StackExchange.Profiling.MongoDB.Driver
             //bulk insert ftw
             if (timing.HasChildren)
             {
-                Timings.InsertManyAsync(MapTimings(timing));
+                var mappedTimings = (new List<TimingPoco>() { MapTiming(timing) });
+                mappedTimings.AddRange(MapTimings(timing));
+                Timings.InsertManyAsync(mappedTimings).Wait();
             } else
             {
-                Timings.InsertOneAsync(MapTiming(timing));
+                Timings.InsertOneAsync(MapTiming(timing)).Wait();
             }
 
             if (timing.HasCustomTimings)
@@ -244,7 +245,7 @@ namespace StackExchange.Profiling.MongoDB.Driver
                     DurationMilliseconds = customTiming.DurationMilliseconds,
                     FirstFetchDurationMilliseconds = customTiming.FirstFetchDurationMilliseconds
                 };
-            CustomTimings.InsertManyAsync(customTimings.ToArray());
+            CustomTimings.InsertManyAsync(customTimings.ToArray()).Wait();
         }
 
         /// <summary>
