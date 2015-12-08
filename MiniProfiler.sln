@@ -1,6 +1,8 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 2012
+# Visual Studio 14
+VisualStudioVersion = 14.0.23107.0
+MinimumVisualStudioVersion = 10.0.40219.1
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{CC40098D-04F2-4F43-B5CF-B74F74351761}"
 	ProjectSection(SolutionItems) = preProject
 		MiniProfiler.EF.nuspec = MiniProfiler.EF.nuspec
@@ -53,10 +55,9 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = ".nuget", ".nuget", "{D54100
 		.nuget\packages.config = .nuget\packages.config
 	EndProjectSection
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "StackExchange.Profiling.MongoDB.Driver", "StackExchange.Profiling.MongoDB.Driver\StackExchange.Profiling.MongoDB.Driver.csproj", "{0924AE78-039F-41AE-AEBB-1FF6189F5033}"
+EndProject
 Global
-	GlobalSection(TestCaseManagementSettings) = postSolution
-		CategoryFile = StackExchange.Profiling.vsmdi
-	EndGlobalSection
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
 		Release|Any CPU = Release|Any CPU
@@ -130,11 +131,20 @@ Global
 		{C74578A4-E848-40F5-84CE-64165E7F477E}.Release|Any CPU.Build.0 = Release|Any CPU
 		{C74578A4-E848-40F5-84CE-64165E7F477E}.ReleaseNuGet|Any CPU.ActiveCfg = Release|Any CPU
 		{C74578A4-E848-40F5-84CE-64165E7F477E}.ReleaseNuGet|Any CPU.Build.0 = Release|Any CPU
+		{0924AE78-039F-41AE-AEBB-1FF6189F5033}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0924AE78-039F-41AE-AEBB-1FF6189F5033}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0924AE78-039F-41AE-AEBB-1FF6189F5033}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0924AE78-039F-41AE-AEBB-1FF6189F5033}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0924AE78-039F-41AE-AEBB-1FF6189F5033}.ReleaseNuGet|Any CPU.ActiveCfg = Release|Any CPU
+		{0924AE78-039F-41AE-AEBB-1FF6189F5033}.ReleaseNuGet|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{EAE04FE1-268F-46EF-ACB5-290408478EBC} = {CC40098D-04F2-4F43-B5CF-B74F74351761}
+	EndGlobalSection
+	GlobalSection(TestCaseManagementSettings) = postSolution
+		CategoryFile = StackExchange.Profiling.vsmdi
 	EndGlobalSection
 EndGlobal
