@@ -6,7 +6,7 @@
     using System.ServiceModel.Channels;
     using System.ServiceModel.Dispatcher;
     using System.ServiceModel.Web;
-
+    
     /// <summary>
     /// The WCF mini profiler dispatch inspector.
     /// </summary>
@@ -63,7 +63,9 @@
                 }
             }
             else
-                throw new InvalidOperationException("MVC Mini Profiler does not support EnvelopeNone unless HTTP is the transport mechanism");
+            {
+                //throw new InvalidOperationException("MVC Mini Profiler does not support EnvelopeNone unless HTTP is the transport mechanism");
+            }
 
             return null;
         }
@@ -107,10 +109,18 @@
                     var property = (HttpResponseMessageProperty)reply.Properties[HttpResponseMessageProperty.Name];
                     string text = header.ToHeaderText();
                     property.Headers.Add(MiniProfilerResultsHeader.HeaderName, text);
+                    property.Headers.Add("X-MiniProfiler-Ids", ToJson(new Guid[] { miniProfiler.Id }));
                 }
                 else
-                    throw new InvalidOperationException("MVC Mini Profiler does not support EnvelopeNone unless HTTP is the transport mechanism");
+                {
+                    //throw new InvalidOperationException("MVC Mini Profiler does not support EnvelopeNone unless HTTP is the transport mechanism");
+                }
             }
+        }
+
+        private static string ToJson(object o)
+        {
+            return o == null ? null : new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(o);
         }
     }
 }
