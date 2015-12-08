@@ -2,12 +2,12 @@
 using System.Linq;
 using System.Threading;
 using System.Web.Mvc;
-using MongoDB.Bson;
 using MongoDB.Driver;
-using MongoDB.Driver.Builders;
+using MongoDB.Bson;
 using SampleWeb.Data;
 using SampleWeb.Models;
 using StackExchange.Profiling;
+using MongoDB.Driver.Builders;
 
 namespace SampleWeb.Controllers
 {
@@ -121,7 +121,7 @@ namespace SampleWeb.Controllers
 
             // drop all indexes
             Repository.FooCollection.DropAllIndexes();
-
+            
             // add couple of records
             // single record
             Repository.BarCollection.Insert(new BsonDocument { { "timestamp", DateTime.Now } });
@@ -133,8 +133,10 @@ namespace SampleWeb.Controllers
                 new BsonDocument {{"timestamp", DateTime.Now.AddSeconds(1)}}
             });
 
+            Repository.FooCollection.InsertBatch(Enumerable.Range(0, 20).Select(x => Random.NextDouble() * x).Select(x=> new BsonDocument("r",new BsonDouble(x))), new MongoInsertOptions() { WriteConcern = WriteConcern.Acknowledged });
+
             // update couple of records
-            Repository.FooCollection.Update(Query.LT("r", 0.01), Update.Inc("up", 1), UpdateFlags.Multi);
+            Repository.FooCollection.Update(Query.LT("r", 0.01), Update.Inc("up", 1), UpdateFlags.Upsert);
 
             // find one record
             var oneRecord = Repository.FooCollection.FindOneAs<BsonDocument>(Query.GT("r", Random.NextDouble()));
