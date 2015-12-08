@@ -167,7 +167,7 @@ namespace StackExchange.Profiling
         [ScriptIgnore]
         public bool IsRoot
         {
-            get { return Equals(Profiler.Root); }
+            get { return Equals(Profiler == null ? (Timing)null :  Profiler.Root); }
         }
 
         /// <summary>
