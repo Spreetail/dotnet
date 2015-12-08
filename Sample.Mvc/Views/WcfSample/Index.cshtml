@@ -30,6 +30,7 @@
     <a class="massive-nesting" href="javascript:void(0);">Massive Nesting</a>
     <a class="massive-nesting" href="javascript:void(0);" style="padding-left:20px">Massive Nesting 2</a>
     <a class="duplicate" href="javascript:void(0);">Duplicated Queries (N+1)</a>
+    <a class="ajaxCall" href="javascript:void(0);">AjaxCall</a>
 
     <script type="text/javascript">
         $(function() {
@@ -76,6 +77,18 @@
                 $.get('@Url.Action("Duplicated")', function (data) {
                     link.parent().append('<p>' + data + '</p>');
                 });
+            });
+            $('.ajaxCall').click(function () {
+                var link = $(this);
+                ajaxCall({
+                    Endpoint: "test/route/MassiveNesting",
+                    //wire this and ajaxcall.js up to use another domain to test CORS / crossdomain miniprofiler functionality.
+                    //Endpoint: "CustomerService/QuickTextService/GetQuickTextShortcuts",
+                    //Data: { ID: 191 },
+                    OnSuccess: function (data) {
+                        link.parent().append('<p> ajax ' + data.d + '</p>');
+                    }
+                })
             });
         });
     </script>
