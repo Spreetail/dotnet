@@ -120,7 +120,7 @@ namespace StackExchange.Profiling.MongoDB.Driver
             SaveClientTimings(profiler);
         }
 
-        private TimingPoco MapTiming(Timing timing)
+        private TimingPoco MapTimingToPoco(Timing timing)
         {
             var rootTiming = new TimingPoco
             {
@@ -132,77 +132,49 @@ namespace StackExchange.Profiling.MongoDB.Driver
             };
             return rootTiming;
         }
-
-        private IEnumerable<TimingPoco> MapTimings(Timing rootTiming)
-        {   
-            return RecursiveSelect(rootTiming.Children, x => x.Children).Select(MapTiming);
-        }
-
-        //http://stackoverflow.com/questions/2055927/ienumerable-and-recursion-using-yield-return
-        private static IEnumerable<TSource> RecursiveSelect<TSource>(
-    IEnumerable<TSource> source, Func<TSource, IEnumerable<TSource>> childSelector)
+        private IEnumerable<CustomTimingPoco> MapCustomTimingsToPoco(Guid parentTimingID, Dictionary<string,List<CustomTiming>> customTimings)
         {
-            var stack = new Stack<IEnumerator<TSource>>();
-            var enumerator = source.GetEnumerator();
-
-            try
-            {
-                while (true)
+            if (customTimings == null)
+                return Enumerable.Empty<CustomTimingPoco>();
+            return customTimings.SelectMany(customTimingsKV =>
+                customTimingsKV.Value.Select(customTiming => new CustomTimingPoco
                 {
-                    if (enumerator.MoveNext())
-                    {
-                        TSource element = enumerator.Current;
-                        yield return element;
-                        var newChild = childSelector(element);
-                        if (newChild != null)
-                        {
-                            stack.Push(enumerator);
-                            enumerator = newChild.GetEnumerator();
-                        }
-                    }
-                    else if (stack.Count > 0)
-                    {
-                        enumerator.Dispose();
-                        enumerator = stack.Pop();
-                    }
-                    else
-                    {
-                        yield break;
-                    }
-                }
-            }
-            finally
-            {
-                enumerator.Dispose();
-
-                while (stack.Count > 0) // Clean up in case of an exception.
-                {
-                    enumerator = stack.Pop();
-                    enumerator.Dispose();
-                }
-            }
+                    Id = customTiming.Id,
+                    Key = customTimingsKV.Key,
+                    TimingId = parentTimingID,
+                    CommandString = customTiming.CommandString,
+                    ExecuteType = customTiming.ExecuteType,
+                    StackTraceSnippet = customTiming.StackTraceSnippet,
+                    StartMilliseconds = customTiming.StartMilliseconds,
+                    DurationMilliseconds = customTiming.DurationMilliseconds,
+                    FirstFetchDurationMilliseconds = customTiming.FirstFetchDurationMilliseconds
+                })
+            );
         }
+        private IEnumerable<TimingPoco> MapTimingWithChildren(Timing rootTiming)
+        {   
+            var result = new List<TimingPoco>() { MapTimingToPoco(rootTiming) };
+            if (!rootTiming.HasChildren)
+                return result;
+            var mappedChildren = rootTiming.Children.RecursiveSelect(x => x.Children).Select(MapTimingToPoco);
+            result.AddRange(mappedChildren);
+            return result;
+        }
+        private IEnumerable<CustomTimingPoco> MapCustomTimingsFromRoot(Timing rootTiming)
+        {
+            var result = new List<CustomTimingPoco>();
+            if (rootTiming.HasCustomTimings)
+                result.AddRange(MapCustomTimingsToPoco(rootTiming.Id,rootTiming.CustomTimings));
+            var flattenedTimings = rootTiming.Children.RecursiveSelect(x => x.Children).Where(x=>x.HasCustomTimings).SelectMany(x=> MapCustomTimingsToPoco(x.Id, x.CustomTimings)).ToArray();
+            result.AddRange(flattenedTimings);
+            return result;
+        }
+
 
         private void SaveTiming(Timing timing)
         {
-            //bulk insert ftw
-            if (timing.HasChildren)
-            {
-                var mappedTimings = (new List<TimingPoco>() { MapTiming(timing) });
-                mappedTimings.AddRange(MapTimings(timing));
-                Timings.InsertManyAsync(mappedTimings).Wait();
-            } else
-            {
-                Timings.InsertOneAsync(MapTiming(timing)).Wait();
-            }
-
-            if (timing.HasCustomTimings)
-            {
-                foreach (var customTimingsKV in timing.CustomTimings)
-                {
-                    SaveCustomTimings(timing, customTimingsKV);
-                }
-            }
+            Timings.InsertManyAsync(MapTimingWithChildren(timing)).Wait();
+            CustomTimings.InsertManyAsync(MapCustomTimingsFromRoot(timing)).Wait();
         }
 
         private void SaveClientTimings(MiniProfiler profiler)
@@ -216,37 +188,18 @@ namespace StackExchange.Profiling.MongoDB.Driver
                 x.Id = Guid.NewGuid();
             });
 
-            var pocos = from clientTiming in profiler.ClientTimings.Timings select new ClientTimingPoco
+            var pocos = profiler.ClientTimings.Timings.Select(clientTiming => new ClientTimingPoco
                 {
                     Id = clientTiming.Id,
                     MiniProfilerId = clientTiming.MiniProfilerId,
                     Name = clientTiming.Name,
                     Start = (double)clientTiming.Start,
                     Duration = (double)clientTiming.Duration
-                };
+                });
 
             ClientTimings.InsertManyAsync(pocos.ToArray());
         }
 
-        private void SaveCustomTimings(Timing timing, KeyValuePair<string, List<CustomTiming>> customTimingsKV)
-        {
-            var key = customTimingsKV.Key;
-            var value = customTimingsKV.Value;
-
-            var customTimings = from customTiming in value select new CustomTimingPoco
-                {
-                    Id = customTiming.Id,
-                    Key = key,
-                    TimingId = timing.Id,
-                    CommandString = customTiming.CommandString,
-                    ExecuteType = customTiming.ExecuteType,
-                    StackTraceSnippet = customTiming.StackTraceSnippet,
-                    StartMilliseconds = customTiming.StartMilliseconds,
-                    DurationMilliseconds = customTiming.DurationMilliseconds,
-                    FirstFetchDurationMilliseconds = customTiming.FirstFetchDurationMilliseconds
-                };
-            CustomTimings.InsertManyAsync(customTimings.ToArray()).Wait();
-        }
 
         /// <summary>
         /// Loads the MiniProfiler identifed by 'id' from the database.

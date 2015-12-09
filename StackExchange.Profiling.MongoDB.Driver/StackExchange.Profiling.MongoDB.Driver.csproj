@@ -53,6 +53,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="IEnumerableExtensions.cs" />
     <Compile Include="MongoDbStorage.cs" />
     <Compile Include="ProfiledMongoCollection.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
