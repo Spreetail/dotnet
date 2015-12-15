@@ -78,7 +78,17 @@
         public void BeforeSendReply(ref Message reply, object correlationState)
         {
             var requestHeader = correlationState as MiniProfilerRequestHeader;
-            MiniProfiler.Stop();
+            try
+            {
+                MiniProfiler.Stop();
+            }
+            catch (Exception ex)
+            {
+                //swallow so profiling doesn't break service calls.
+                //throw;
+                System.Diagnostics.Debug.WriteLine("Exception during miniProfiler stop." + ex.Message);
+                return;
+            }
             var miniProfiler = MiniProfiler.Current;
 
             if (miniProfiler != null && requestHeader != null)
