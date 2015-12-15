@@ -18,6 +18,8 @@ namespace StackExchange.Profiling.MongoDB.Driver
         public static IEnumerable<TSource> FlattenTree<TSource>(this IEnumerable<TSource> source, Func<TSource, IEnumerable<TSource>> childSelector)
         {
             var stack = new Stack<IEnumerator<TSource>>();
+            if (source == null)
+                yield break;
             var enumerator = source.GetEnumerator();
 
             try
