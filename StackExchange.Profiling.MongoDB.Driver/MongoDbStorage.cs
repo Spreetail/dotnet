@@ -153,10 +153,11 @@ namespace StackExchange.Profiling.MongoDB.Driver
         }
         private IEnumerable<TimingPoco> MapTimingWithChildren(Timing rootTiming)
         {   
+            //always map / insert rootTiming.
             var result = new List<TimingPoco>() { MapTimingToPoco(rootTiming) };
             if (!rootTiming.HasChildren)
                 return result;
-            var mappedChildren = rootTiming.Children.RecursiveSelect(x => x.Children).Select(MapTimingToPoco);
+            var mappedChildren = rootTiming.Children.FlattenTree(x => x.Children).Select(MapTimingToPoco);
             result.AddRange(mappedChildren);
             return result;
         }
@@ -165,7 +166,7 @@ namespace StackExchange.Profiling.MongoDB.Driver
             var result = new List<CustomTimingPoco>();
             if (rootTiming.HasCustomTimings)
                 result.AddRange(MapCustomTimingsToPoco(rootTiming.Id,rootTiming.CustomTimings));
-            var flattenedTimings = rootTiming.Children.RecursiveSelect(x => x.Children).Where(x=>x.HasCustomTimings).SelectMany(x=> MapCustomTimingsToPoco(x.Id, x.CustomTimings)).ToArray();
+            var flattenedTimings = rootTiming.Children.FlattenTree(x => x.Children).Where(x=>x.HasCustomTimings).SelectMany(x=> MapCustomTimingsToPoco(x.Id, x.CustomTimings)).ToArray();
             result.AddRange(flattenedTimings);
             return result;
         }
@@ -173,8 +174,14 @@ namespace StackExchange.Profiling.MongoDB.Driver
 
         private void SaveTiming(Timing timing)
         {
-            Timings.InsertManyAsync(MapTimingWithChildren(timing)).Wait();
-            CustomTimings.InsertManyAsync(MapCustomTimingsFromRoot(timing)).Wait();
+            //mongo doesn't like it if you InsertMany an empty array.
+            var timings = MapTimingWithChildren(timing).ToArray();
+            if(timings.Any())
+                Timings.InsertManyAsync(timings).Wait();
+
+            var customTimings = MapCustomTimingsFromRoot(timing).ToArray();
+            if(customTimings.Any())
+                CustomTimings.InsertManyAsync(customTimings).Wait();
         }
 
         private void SaveClientTimings(MiniProfiler profiler)
