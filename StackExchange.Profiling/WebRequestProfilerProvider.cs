@@ -174,8 +174,8 @@ namespace StackExchange.Profiling
                 if (string.IsNullOrWhiteSpace(profiler.Name))
                 {
                     profiler.Name = request.Url.AbsolutePath ?? string.Empty;
-                    if (profiler.Name.Length > 50)
-                        profiler.Name = profiler.Name.Remove(50);
+                    if (profiler.Name.Length > 200)
+                        profiler.Name = profiler.Name.Remove(200);
                 }
             }
         }
