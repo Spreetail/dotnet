@@ -126,8 +126,15 @@ namespace StackExchange.Profiling
 
             // unviewed ids are added to this list during Storage.Save, but we know we haven't 
             // seen the current one yet, so go ahead and add it to the end 
-            var ids = authorized ? MiniProfiler.Settings.Storage.GetUnviewedIds(profiler.User) : new List<Guid>();
-            ids.Add(profiler.Id);
+            List<Guid> ids = null;
+            try
+            {
+                ids = authorized ? MiniProfiler.Settings.Storage.GetUnviewedIds(profiler.User) : new List<Guid>();
+                ids.Add(profiler.Id);
+            }
+            catch {
+                //if getting throws, it ruins the whole pageload. We can handle exceptions around the Start and Stop methods in global.asax
+            }
 
             string format;
             if (!TryGetResource("include.partial.html", out format))
