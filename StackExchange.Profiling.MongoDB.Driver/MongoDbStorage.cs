@@ -106,7 +106,7 @@ namespace StackExchange.Profiling.MongoDB.Driver
                 HasUserViewed = profiler.HasUserViewed,
                 MachineName = profiler.MachineName,
                 CustomLinksJson = profiler.CustomLinksJson,
-                ClientTimingsRedirectCounts = profiler.ClientTimings != null ? profiler.ClientTimings.RedirectCount : (int?)null
+                ClientTimingsRedirectCounts = profiler.ClientTimings != null ? profiler.ClientTimings.RedirectCount : 0
             };
             var result = Profilers.ReplaceOneAsync(x=>x.Id == profiler.Id, miniProfilerPoco, new UpdateOptions() { IsUpsert = true }).Result;
             if (result.IsAcknowledged)
