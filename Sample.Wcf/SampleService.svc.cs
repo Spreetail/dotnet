@@ -9,11 +9,13 @@
     using Dapper;
 
     using StackExchange.Profiling;
+    using System.ServiceModel.Activation;
 
     /// <summary>
     /// The sample service.
     /// NOTE: You can use the "Rename" command on the "Refactor" menu to change the class name "Service1" in code, svc and config file together.
     /// </summary>
+    [AspNetCompatibilityRequirements(RequirementsMode = AspNetCompatibilityRequirementsMode.Allowed)]
     public class SampleService : ISampleService
     {
         /// <summary>

@@ -2,6 +2,7 @@
 using System.Web;
 using StackExchange.Profiling;
 using StackExchange.Profiling.Wcf;
+using System.Web.Routing;
 
 namespace Sample.Wcf
 {
@@ -48,7 +49,22 @@ namespace Sample.Wcf
 
         protected void Application_Start(object sender, EventArgs eventArgs)
         {
+            Routes.RegisterRoutes(RouteTable.Routes);
+
             InitProfilerSettings();            
+        }
+
+        protected void Application_BeginRequest(object sender, EventArgs e)
+        {
+            HttpContext.Current.Response.AddHeader("Access-Control-Allow-Origin", "*");
+            if (HttpContext.Current.Request.HttpMethod == "OPTIONS")
+            {
+                HttpContext.Current.Response.AddHeader("Cache-Control", "no-cache");
+                HttpContext.Current.Response.AddHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+                HttpContext.Current.Response.AddHeader("Access-Control-Allow-Headers", "Content-Type, Accept, Authorization,x-ws-auth-token,x-ws-auth-type,Content-Type,X-Requested-With,MiniProfilerRequestHeader");
+                HttpContext.Current.Response.AddHeader("Access-Control-Max-Age", "1728000");
+                HttpContext.Current.Response.End();
+            }
         }
     }
 }

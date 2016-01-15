@@ -162,12 +162,17 @@ namespace StackExchange.Profiling
         }
 
         /// <summary>
+        /// for serializing the timings across the wire -- prevents nullreference exceptions when accessing IsRoot.
+        /// </summary>
+        private bool _isRoot = false;
+
+        /// <summary>
         /// Gets a value indicating whether this Timing is the first one created in a MiniProfiler session.
         /// </summary>
-        [ScriptIgnore]
         public bool IsRoot
         {
-            get { return Equals(Profiler.Root); }
+            get { return Profiler == null ? _isRoot : Equals(Profiler.Root); }
+            set { _isRoot = value; }
         }
 
         /// <summary>
