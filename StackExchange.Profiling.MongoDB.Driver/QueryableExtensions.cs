@@ -149,7 +149,8 @@ namespace StackExchange.Profiling.MongoDB.Driver
             string cmdString = Source.Provider.CreateQuery(expression).ToString();
             var timing = StackExchange.Profiling.MiniProfiler.Current.CustomTiming("mongodb", cmdString);
             var results = Source.Provider.Execute(translated);
-            timing.Stop();
+            if (timing != null)
+                timing.Stop();
             return results;
         }
 
@@ -164,7 +165,8 @@ namespace StackExchange.Profiling.MongoDB.Driver
             string cmdString = Source.Provider.CreateQuery(expression).ToString();
             var timing = StackExchange.Profiling.MiniProfiler.Current.CustomTiming("mongodb", cmdString);
             var results = Source.Provider.CreateQuery(translated);
-            timing.Stop();
+            if(timing != null)
+                timing.Stop();
             return results;
         }
 
