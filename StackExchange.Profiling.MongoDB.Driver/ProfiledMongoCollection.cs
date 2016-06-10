@@ -12,54 +12,97 @@ using StackExchange.Profiling.MongoDB.Driver;
 
 namespace StackExchange.Profiling.MongoDB.Driver
 {
-    public static class CustomExtensions
+    internal static class CustomExtensions
     {
-        private static IDisposable StartStep<T>(IMongoCollection<T> col)
+        public static DisposableTiming<T> StartStep<T>(this IMongoCollection<T> col, string CommandText, string CommandType)
         {
-            return MiniProfiler.Current.CustomTiming("MongoDB", col.Database.DatabaseNamespace + "." + col.CollectionNamespace);
+            return new DisposableTiming<T>(col, col.CollectionNamespace + "." + CommandText, CommandType);
         }
 
-        public static Task<T> AsTimed<T,TDoc>(this Task<T> source, IMongoCollection<TDoc> col)
+        public static Task<T> AsTimedTask<T, TDoc>(this Task<T> source, IMongoCollection<TDoc> col, string Command = "", string Type = "")
         {
-            var t = StartStep(col);
+            var t = StartStep(col, Command, Type);
             if (t == null)
                 return source;
             return source.ContinueWith<T>(x => { t.Dispose(); return x.Result; });
         }
-        public static Task<IAsyncCursor<TDoc>> AsTimed<T, TDoc>(this Task<IAsyncCursor<TDoc>> source, IMongoCollection<TDoc> col)
+        public static Task<IAsyncCursor<TResult>> AsTimedAsync<TResult, TDoc>(this Task<IAsyncCursor<TResult>> source, IMongoCollection<TDoc> col, string Type,string CommandString = null)
         {
-            var t = MiniProfiler.Current.CustomTiming("mongodb", "");
+            var t = StartStep<TDoc>(col, "", Type);
             if (t == null)
                 return source;
-            return source.ContinueWith<IAsyncCursor<TDoc>>(x => { t.CommandString = x.Result.ToString(); t.Stop(); return x.Result; });
+            return source.ContinueWith<IAsyncCursor<TResult>>(x => { t.Timing.CommandString = CommandString ?? x.ToString(); t.Dispose(); return x.Result; });
         }
-        public static Task AsTimed<TDoc>(this Task source, IMongoCollection<TDoc> col)
+        public static Task AsTimedPlainTask<TDoc>(this Task source, IMongoCollection<TDoc> col)
         {
-            var t = StartStep(col);
+            var t = StartStep(col, "unknown", "unknown");
             if (t == null)
                 return source;
             return source.ContinueWith((x) => t.Dispose());
+        }
+
+        public static string PJ<T>(this IMongoCollection<T> col, FilterDefinition<T> df)
+        {
+            return col.Find(df).ToString();
+        }
+        public static IAsyncCursor<TResult> StopProfiling<TResult, TDoc>(this IAsyncCursor<TResult> ac, DisposableTiming<TDoc> dt)
+        {
+            dt.Dispose(ac.ToString());
+            return ac;
         }
     }
     /// <summary>
     /// For use later when there's a sync API.
     /// </summary>
-    class DisposableTiming<TDoc> : IDisposable
+    internal class DisposableTiming<TDoc> : IDisposable
     {
         private CustomTiming _timing;
-        public DisposableTiming(IMongoCollection<TDoc> col)
+        private IMongoCollection<TDoc> col;
+
+        public CustomTiming Timing {
+            get {
+                return _timing;
+            }
+        }
+
+        public DisposableTiming(IMongoCollection<TDoc> col, string command, string type)
         {
-            this._timing = MiniProfiler.Current.CustomTiming("mongodb", col.CollectionNamespace.FullName);
+            this.col = col;
+            this._timing = MiniProfiler.Current.CustomTiming("mongodbDisposable", col.CollectionNamespace.FullName + "." + command, type);
         }
         public void Dispose()
         {
-            if(_timing != null)
+            if (_timing != null)
+            {
                 _timing.Stop();
+            }
+            col = null;
             _timing = null;
+        }
+
+        internal void Dispose(string CommandText)
+        {
+            if (_timing != null)
+            {
+                _timing.CommandString = col.CollectionNamespace.FullName + "." + CommandText;
+            }
+            Dispose();
         }
     }
 
     //TODO -- spreetail is DeleteOneModel mongo 2.1, mongo 2.2 changes the interface. Package up as AbandonedMutexException nuget package.
+
+    /*
+     * OKAY here we go -- mongo made it /REALLY/ hard to get human readable profiling data from their c# queries. Probably because I don't understand how the driver works.
+     * Some of them the query can be snagged before it runs and other saftewards. Hence the funny extension methods. 
+     *
+     * IAsyncCursor -> AsTimedAsync(this,type)
+     * Task<T> -> AsTimedTask(this,query,type)
+     * Task -> AsPlainTask(this,query,type)
+     * Result<T> -> using(this.StartStep(query,type))
+     * IAsyncCursor<TResult> -> using(this.StartStep(type) -> .StopProfiling(query)
+     * */
+
 
     /// <summary>
     /// Provides generic timings for the length of requests using the. Does NOT provide info about the query executed. These timings show up as Steps, not as 
@@ -88,53 +131,57 @@ namespace StackExchange.Profiling.MongoDB.Driver
 
         public IAsyncCursor<TResult> Aggregate<TResult>(PipelineDefinition<TDocument, TResult> pipeline, AggregateOptions options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-
-            return _collection.Aggregate<TResult>(pipeline, options, cancellationToken);
+            using (var step = this.StartStep("", "Aggregate"))
+                return _collection.Aggregate<TResult>(pipeline, options, cancellationToken).StopProfiling(step);
         }
 
         public Task<IAsyncCursor<TResult>> AggregateAsync<TResult>(PipelineDefinition<TDocument, TResult> pipeline, AggregateOptions options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.AggregateAsync<TResult>(pipeline, options, cancellationToken).ContinueWith(x => x.Result).AsTimed(this);
+            return _collection.AggregateAsync<TResult>(pipeline, options, cancellationToken).AsTimedAsync(this, "AggregateAsync");
         }
 
         public BulkWriteResult<TDocument> BulkWrite(IEnumerable<WriteModel<TDocument>> requests, BulkWriteOptions options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.BulkWrite(requests, options, cancellationToken);
+            using (this.StartStep(requests.ToJson(), "BulkWrite"))
+                return _collection.BulkWrite(requests, options, cancellationToken);
         }
 
         public Task<BulkWriteResult<TDocument>> BulkWriteAsync(IEnumerable<WriteModel<TDocument>> requests, BulkWriteOptions options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.BulkWriteAsync(requests, options, cancellationToken).AsTimed(this);
+            return _collection.BulkWriteAsync(requests, options, cancellationToken).AsTimedTask(this, "", "BulkWriteAsync");
         }
 
         public long Count(FilterDefinition<TDocument> filter, CountOptions options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.Count(filter, options, cancellationToken);
+            using (this.StartStep(this.PJ(filter), "Count"))
+                return _collection.Count(filter, options, cancellationToken);
         }
 
         public Task<long> CountAsync(FilterDefinition<TDocument> filter, CountOptions options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.CountAsync(filter, options, cancellationToken).AsTimed(this);
+            return _collection.CountAsync(filter, options, cancellationToken).AsTimedTask(this, this.PJ(filter), "CountAsync");
         }
 
         public DeleteResult DeleteMany(FilterDefinition<TDocument> filter, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.DeleteMany(filter, cancellationToken);
+            using (this.StartStep(this.PJ(filter), "DeleteMany"))
+                return _collection.DeleteMany(filter, cancellationToken);
         }
 
         public Task<DeleteResult> DeleteManyAsync(FilterDefinition<TDocument> filter, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.DeleteManyAsync(filter, cancellationToken).AsTimed(this);
+            return _collection.DeleteManyAsync(filter, cancellationToken).AsTimedTask(this, this.PJ(filter), "DeleteManyAsync");
         }
 
         public DeleteResult DeleteOne(FilterDefinition<TDocument> filter, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.DeleteOne(filter, cancellationToken);
+            using (this.StartStep(this.PJ(filter), "DeleteOne"))
+                return _collection.DeleteOne(filter, cancellationToken);
         }
 
         public Task<DeleteResult> DeleteOneAsync(FilterDefinition<TDocument> filter, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.DeleteOneAsync(filter, cancellationToken).AsTimed(this);
+            return _collection.DeleteOneAsync(filter, cancellationToken).AsTimedTask(this, this.PJ(filter), "DeleteOneAsync");
         }
 
         public IAsyncCursor<TField> Distinct<TField>(FieldDefinition<TDocument, TField> field, FilterDefinition<TDocument> filter, DistinctOptions options = null, CancellationToken cancellationToken = default(CancellationToken))
@@ -144,7 +191,7 @@ namespace StackExchange.Profiling.MongoDB.Driver
 
         public Task<IAsyncCursor<TField>> DistinctAsync<TField>(FieldDefinition<TDocument, TField> field, FilterDefinition<TDocument> filter, DistinctOptions options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.DistinctAsync<TField>(field, filter, options, cancellationToken).AsTimed(this);
+            return _collection.DistinctAsync<TField>(field, filter, options, cancellationToken).AsTimedAsync(this,"DistinctAsync",this.PJ(filter) + field.ToJson());
         }
 
         public Task<IAsyncCursor<TProjection>> FindAsync<TProjection>(FilterDefinition<TDocument> filter, FindOptions<TDocument, TProjection> options = null, CancellationToken cancellationToken = default(CancellationToken))
@@ -179,7 +226,7 @@ namespace StackExchange.Profiling.MongoDB.Driver
 
         public Task<TProjection> FindOneAndUpdateAsync<TProjection>(FilterDefinition<TDocument> filter, UpdateDefinition<TDocument> update, FindOneAndUpdateOptions<TDocument, TProjection> options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.FindOneAndUpdateAsync<TProjection>(filter, update, options, cancellationToken).AsTimed(this);
+            return _collection.FindOneAndUpdateAsync<TProjection>(filter, update, options, cancellationToken).AsTimed(this, filter.ToString() + update.ToString(), "FindOneAndUpdate");
         }
 
         public IAsyncCursor<TProjection> FindSync<TProjection>(FilterDefinition<TDocument> filter, FindOptions<TDocument, TProjection> options = null, CancellationToken cancellationToken = default(CancellationToken))
