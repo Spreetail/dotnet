@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
 using MongoDB.Driver;
+using MongoBase = MongoDB.Driver;
 using MongoDB.Driver.Linq;
 using StackExchange.Profiling.MongoDB.Driver;
 
@@ -16,7 +17,7 @@ namespace StackExchange.Profiling.MongoDB.Driver
     {
         public static DisposableTiming<T> StartStep<T>(this IMongoCollection<T> col, string CommandText, string CommandType)
         {
-            return new DisposableTiming<T>(col, col.CollectionNamespace + "." + CommandText, CommandType);
+            return new DisposableTiming<T>(col, CommandText, CommandType);
         }
 
         public static Task<T> AsTimedTask<T, TDoc>(this Task<T> source, IMongoCollection<TDoc> col, string Command = "", string Type = "")
@@ -26,16 +27,17 @@ namespace StackExchange.Profiling.MongoDB.Driver
                 return source;
             return source.ContinueWith<T>(x => { t.Dispose(); return x.Result; });
         }
-        public static Task<IAsyncCursor<TResult>> AsTimedAsync<TResult, TDoc>(this Task<IAsyncCursor<TResult>> source, IMongoCollection<TDoc> col, string Type,string CommandString = null)
+        public static Task<IAsyncCursor<TResult>> TimedTaskAsyncCursor<TResult, TDoc>(this Task<IAsyncCursor<TResult>> source, IMongoCollection<TDoc> col, string Type,string CommandString = null)
         {
-            var t = StartStep<TDoc>(col, "", Type);
+            var t = StartStep<TDoc>(col, CommandString, Type);
             if (t == null)
                 return source;
-            return source.ContinueWith<IAsyncCursor<TResult>>(x => { t.Timing.CommandString = CommandString ?? x.ToString(); t.Dispose(); return x.Result; });
+            return source.ContinueWith<IAsyncCursor<TResult>>(x => {t.Dispose(); return x.Result; });
         }
-        public static Task AsTimedPlainTask<TDoc>(this Task source, IMongoCollection<TDoc> col)
+        [Obsolete]
+        public static Task AsTimedPlainTask<TDoc>(this Task source, IMongoCollection<TDoc> col,string Command, string Type)
         {
-            var t = StartStep(col, "unknown", "unknown");
+            var t = StartStep(col, Command, Type);
             if (t == null)
                 return source;
             return source.ContinueWith((x) => t.Dispose());
@@ -47,7 +49,7 @@ namespace StackExchange.Profiling.MongoDB.Driver
         }
         public static IAsyncCursor<TResult> StopProfiling<TResult, TDoc>(this IAsyncCursor<TResult> ac, DisposableTiming<TDoc> dt)
         {
-            dt.Dispose(ac.ToString());
+            dt.Dispose();
             return ac;
         }
     }
@@ -68,7 +70,7 @@ namespace StackExchange.Profiling.MongoDB.Driver
         public DisposableTiming(IMongoCollection<TDoc> col, string command, string type)
         {
             this.col = col;
-            this._timing = MiniProfiler.Current.CustomTiming("mongodbDisposable", col.CollectionNamespace.FullName + "." + command, type);
+            this._timing = MiniProfiler.Current.CustomTiming("MongoDB", col.CollectionNamespace.FullName + " -- " + command, type);
         }
         public void Dispose()
         {
@@ -131,144 +133,186 @@ namespace StackExchange.Profiling.MongoDB.Driver
 
         public IAsyncCursor<TResult> Aggregate<TResult>(PipelineDefinition<TDocument, TResult> pipeline, AggregateOptions options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            using (var step = this.StartStep("", "Aggregate"))
-                return _collection.Aggregate<TResult>(pipeline, options, cancellationToken).StopProfiling(step);
+            string cmdText = getAggregateCommandString(pipeline);
+            using (var step = this.StartStep(cmdText, "Aggregate"))
+                return _collection.Aggregate<TResult>(pipeline, options, cancellationToken);
+        }
+        private string RF(FilterDefinition<TDocument> filter)
+        {
+            return filter.Render(this.DocumentSerializer, this.Settings.SerializerRegistry).ToString();
+        }
+        private string RF<TField>(FilterDefinition<TDocument> filter,FieldDefinition<TDocument,TField> field)
+        {
+            return filter.Render(this.DocumentSerializer, this.Settings.SerializerRegistry).ToString()
+                + " - " + field.Render(this.DocumentSerializer, this.Settings.SerializerRegistry).FieldName.ToString();
+        }
+        private string getAggregateCommandString<TResult>(PipelineDefinition<TDocument, TResult> pipeline)
+        {
+            //string cmdText = "";
+            //IEnumerable<string> renderedText;
+            //var pd = (pipeline as MongoBase.PipelineStagePipelineDefinition<TDocument, TResult>);
+            //if (pd != null)
+            //{
+            var renderedText = pipeline.Render(this.DocumentSerializer, this.Settings.SerializerRegistry).Documents.Select(x => x.ToString());
+            //}
+            //var bs = (pipeline as MongoBase.BsonDocumentStagePipelineDefinition<TDocument, TResult>);
+            //if(bs != null)
+            //    renderedText = bs.Render(this.DocumentSerializer, this.Settings.SerializerRegistry).Documents.Select(x => x.ToString()));
+            //var 
+            //?? (pipeline as MongoBase.PipelineStageDefinition<TDocument, TResult>).Rend;
+
+            return "aggregate([" + String.Join("," + Environment.NewLine, renderedText) +"])";
         }
 
         public Task<IAsyncCursor<TResult>> AggregateAsync<TResult>(PipelineDefinition<TDocument, TResult> pipeline, AggregateOptions options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.AggregateAsync<TResult>(pipeline, options, cancellationToken).AsTimedAsync(this, "AggregateAsync");
+
+            string cmdText = getAggregateCommandString(pipeline);
+            return _collection.AggregateAsync<TResult>(pipeline, options, cancellationToken).TimedTaskAsyncCursor(this, "AggregateAsync", cmdText);
         }
 
         public BulkWriteResult<TDocument> BulkWrite(IEnumerable<WriteModel<TDocument>> requests, BulkWriteOptions options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            using (this.StartStep(requests.ToJson(), "BulkWrite"))
+            //it would be silly to write the contents of all the documents to the miniprofiler db Let's do a count instead.
+            using (this.StartStep(requests.Count() + " " + requests.First().ModelType + " Documents", "BulkWrite"))
                 return _collection.BulkWrite(requests, options, cancellationToken);
         }
 
         public Task<BulkWriteResult<TDocument>> BulkWriteAsync(IEnumerable<WriteModel<TDocument>> requests, BulkWriteOptions options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.BulkWriteAsync(requests, options, cancellationToken).AsTimedTask(this, "", "BulkWriteAsync");
+            return _collection.BulkWriteAsync(requests, options, cancellationToken).AsTimedTask(this, requests.Count() + " " + requests.First().ModelType + " Documents", "BulkWriteAsync");
         }
 
         public long Count(FilterDefinition<TDocument> filter, CountOptions options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            using (this.StartStep(this.PJ(filter), "Count"))
+            using (this.StartStep(RF(filter), "Count"))
                 return _collection.Count(filter, options, cancellationToken);
         }
 
         public Task<long> CountAsync(FilterDefinition<TDocument> filter, CountOptions options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.CountAsync(filter, options, cancellationToken).AsTimedTask(this, this.PJ(filter), "CountAsync");
+            return _collection.CountAsync(filter, options, cancellationToken).AsTimedTask(this, RF(filter), "CountAsync");
         }
 
         public DeleteResult DeleteMany(FilterDefinition<TDocument> filter, CancellationToken cancellationToken = default(CancellationToken))
         {
-            using (this.StartStep(this.PJ(filter), "DeleteMany"))
+            using (this.StartStep(RF(filter), "DeleteMany"))
                 return _collection.DeleteMany(filter, cancellationToken);
         }
 
         public Task<DeleteResult> DeleteManyAsync(FilterDefinition<TDocument> filter, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.DeleteManyAsync(filter, cancellationToken).AsTimedTask(this, this.PJ(filter), "DeleteManyAsync");
+            return _collection.DeleteManyAsync(filter, cancellationToken).AsTimedTask(this, RF(filter), "DeleteManyAsync");
         }
 
         public DeleteResult DeleteOne(FilterDefinition<TDocument> filter, CancellationToken cancellationToken = default(CancellationToken))
         {
-            using (this.StartStep(this.PJ(filter), "DeleteOne"))
+            using (this.StartStep(RF(filter), "DeleteOne"))
                 return _collection.DeleteOne(filter, cancellationToken);
         }
 
         public Task<DeleteResult> DeleteOneAsync(FilterDefinition<TDocument> filter, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.DeleteOneAsync(filter, cancellationToken).AsTimedTask(this, this.PJ(filter), "DeleteOneAsync");
+            return _collection.DeleteOneAsync(filter, cancellationToken).AsTimedTask(this, RF(filter), "DeleteOneAsync");
         }
 
         public IAsyncCursor<TField> Distinct<TField>(FieldDefinition<TDocument, TField> field, FilterDefinition<TDocument> filter, DistinctOptions options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.Distinct<TField>(field, filter, options, cancellationToken);
+            using(var step = this.StartStep(RF(filter,field),"Distinct"))
+                return _collection.Distinct<TField>(field, filter, options, cancellationToken).StopProfiling(step);
         }
 
         public Task<IAsyncCursor<TField>> DistinctAsync<TField>(FieldDefinition<TDocument, TField> field, FilterDefinition<TDocument> filter, DistinctOptions options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.DistinctAsync<TField>(field, filter, options, cancellationToken).AsTimedAsync(this,"DistinctAsync",this.PJ(filter) + field.ToJson());
+            return _collection.DistinctAsync<TField>(field, filter, options, cancellationToken).TimedTaskAsyncCursor(this,"DistinctAsync",RF(filter) + field.ToJson());
         }
 
         public Task<IAsyncCursor<TProjection>> FindAsync<TProjection>(FilterDefinition<TDocument> filter, FindOptions<TDocument, TProjection> options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.FindAsync<TProjection>(filter, options, cancellationToken).AsTimed(this);
+            return _collection.FindAsync<TProjection>(filter, options, cancellationToken).TimedTaskAsyncCursor(this,"FindAsync",RF(filter));
         }
 
         public TProjection FindOneAndDelete<TProjection>(FilterDefinition<TDocument> filter, FindOneAndDeleteOptions<TDocument, TProjection> options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.FindOneAndDelete<TProjection>(filter, options, cancellationToken);
+            using(this.StartStep(RF(filter),"FindOneAndDelete"))
+                return _collection.FindOneAndDelete<TProjection>(filter, options, cancellationToken);
         }
 
         public Task<TProjection> FindOneAndDeleteAsync<TProjection>(FilterDefinition<TDocument> filter, FindOneAndDeleteOptions<TDocument, TProjection> options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.FindOneAndDeleteAsync<TProjection>(filter, options, cancellationToken).AsTimed(this);
+            return _collection.FindOneAndDeleteAsync<TProjection>(filter, options, cancellationToken).AsTimedTask(this,RF(filter),"FindOneAndDeleteAsync");
         }
 
         public TProjection FindOneAndReplace<TProjection>(FilterDefinition<TDocument> filter, TDocument replacement, FindOneAndReplaceOptions<TDocument, TProjection> options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.FindOneAndReplace<TProjection>(filter, replacement, options, cancellationToken);
+            using (this.StartStep(RF(filter), "FindOneAndReplace"))
+                return _collection.FindOneAndReplace<TProjection>(filter, replacement, options, cancellationToken);
         }
 
         public Task<TProjection> FindOneAndReplaceAsync<TProjection>(FilterDefinition<TDocument> filter, TDocument replacement, FindOneAndReplaceOptions<TDocument, TProjection> options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.FindOneAndReplaceAsync<TProjection>(filter, replacement, options, cancellationToken).AsTimed(this);
+            return _collection.FindOneAndReplaceAsync<TProjection>(filter, replacement, options, cancellationToken).AsTimedTask(this, RF(filter), "FindOneAndReplaceAsync");
         }
 
         public TProjection FindOneAndUpdate<TProjection>(FilterDefinition<TDocument> filter, UpdateDefinition<TDocument> update, FindOneAndUpdateOptions<TDocument, TProjection> options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.FindOneAndUpdate<TProjection>(filter, update, options, cancellationToken);
+            using (this.StartStep(RF(filter) + " - " + update.ToJson(), "FindOneAndReplace"))
+                return _collection.FindOneAndUpdate<TProjection>(filter, update, options, cancellationToken);
         }
 
         public Task<TProjection> FindOneAndUpdateAsync<TProjection>(FilterDefinition<TDocument> filter, UpdateDefinition<TDocument> update, FindOneAndUpdateOptions<TDocument, TProjection> options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.FindOneAndUpdateAsync<TProjection>(filter, update, options, cancellationToken).AsTimed(this, filter.ToString() + update.ToString(), "FindOneAndUpdate");
+            return _collection.FindOneAndUpdateAsync<TProjection>(filter, update, options, cancellationToken).AsTimedTask(this, RF(filter) + " - " + update.ToJson(), "FindOneAndUpdateAsync");
         }
 
         public IAsyncCursor<TProjection> FindSync<TProjection>(FilterDefinition<TDocument> filter, FindOptions<TDocument, TProjection> options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.FindSync<TProjection>(filter, options, cancellationToken);
+            using (var step = this.StartStep(RF(filter), "FindSync"))
+                return _collection.FindSync<TProjection>(filter, options, cancellationToken);
         }
 
         public void InsertMany(IEnumerable<TDocument> documents, InsertManyOptions options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            _collection.InsertMany(documents, options, cancellationToken);
+            using (var step = this.StartStep(documents.Count() + " " + typeof(TDocument).ToString() + " documents", "InsertMany"))
+                _collection.InsertMany(documents, options, cancellationToken);
         }
 
         public Task InsertManyAsync(IEnumerable<TDocument> documents, InsertManyOptions options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.InsertManyAsync(documents, options, cancellationToken).AsTimed(this);
+            return _collection.InsertManyAsync(documents, options, cancellationToken).AsTimedPlainTask(this, documents.Count() + " " + typeof(TDocument).ToString() + " documents","InsertManyAsync");
         }
 
         public void InsertOne(TDocument document, InsertOneOptions options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            _collection.InsertOne(document, options, cancellationToken);
+            using (var step = this.StartStep("", "InsertOne"))
+                _collection.InsertOne(document, options, cancellationToken);
         }
 
         public Task InsertOneAsync(TDocument document, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.InsertOneAsync(document, cancellationToken).AsTimed(this);
+            return _collection.InsertOneAsync(document, cancellationToken).AsTimedPlainTask(this,"1 " + typeof(TDocument).Name,"InsertOneAsync");
         }
 
         public Task InsertOneAsync(TDocument document, InsertOneOptions options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.InsertOneAsync(document, options, cancellationToken);
+            return _collection.InsertOneAsync(document, options, cancellationToken).AsTimedPlainTask(this, "1 " + typeof(TDocument).Name, "InsertOneAsync");
         }
 
         public IAsyncCursor<TResult> MapReduce<TResult>(BsonJavaScript map, BsonJavaScript reduce, MapReduceOptions<TDocument, TResult> options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.MapReduce<TResult>(map, reduce, options, cancellationToken);
+            using (var step = this.StartStep(getMapReduceString(map,reduce), "MapReduce"))
+                return _collection.MapReduce<TResult>(map, reduce, options, cancellationToken);
         }
 
         public Task<IAsyncCursor<TResult>> MapReduceAsync<TResult>(BsonJavaScript map, BsonJavaScript reduce, MapReduceOptions<TDocument, TResult> options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.MapReduceAsync<TResult>(map, reduce, options, cancellationToken).AsTimed(this);
+            return _collection.MapReduceAsync<TResult>(map, reduce, options, cancellationToken).TimedTaskAsyncCursor(this,getMapReduceString(map,reduce),"MapReduceAsync");
         }
 
+        private string getMapReduceString(BsonJavaScript map, BsonJavaScript reduce)
+        {
+            return map.ToJson() + Environment.NewLine + reduce.ToJson();
+        }
         /// <summary>
         /// not timed.
         /// </summary>
@@ -281,32 +325,35 @@ namespace StackExchange.Profiling.MongoDB.Driver
 
         public ReplaceOneResult ReplaceOne(FilterDefinition<TDocument> filter, TDocument replacement, UpdateOptions options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.ReplaceOne(filter, replacement, options, cancellationToken);
+            using (this.StartStep(RF(filter), "ReplaceOne"))
+                return _collection.ReplaceOne(filter, replacement, options, cancellationToken);
         }
 
         public Task<ReplaceOneResult> ReplaceOneAsync(FilterDefinition<TDocument> filter, TDocument replacement, UpdateOptions options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.ReplaceOneAsync(filter, replacement, options, cancellationToken).AsTimed(this);
+            return _collection.ReplaceOneAsync(filter, replacement, options, cancellationToken).AsTimedTask(this,RF(filter),"ReplaceOneAsync");
         }
 
         public UpdateResult UpdateMany(FilterDefinition<TDocument> filter, UpdateDefinition<TDocument> update, UpdateOptions options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.UpdateMany(filter, update, options, cancellationToken);
+            using (this.StartStep(RF(filter) + " - " + update.ToJson(), "UpdateMany"))
+                return _collection.UpdateMany(filter, update, options, cancellationToken);
         }
 
         public Task<UpdateResult> UpdateManyAsync(FilterDefinition<TDocument> filter, UpdateDefinition<TDocument> update, UpdateOptions options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.UpdateManyAsync(filter, update, options, cancellationToken).AsTimed(this);
+            return _collection.UpdateManyAsync(filter, update, options, cancellationToken).AsTimedTask(this,RF(filter) + " - " + update.ToJson(),"UpdateManyAsync");
         }
 
         public UpdateResult UpdateOne(FilterDefinition<TDocument> filter, UpdateDefinition<TDocument> update, UpdateOptions options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.UpdateOne(filter, update, options, cancellationToken);
+            using (this.StartStep(RF(filter) + " - " + update.ToJson(), "UpdateOne"))
+                return _collection.UpdateOne(filter, update, options, cancellationToken);
         }
 
         public Task<UpdateResult> UpdateOneAsync(FilterDefinition<TDocument> filter, UpdateDefinition<TDocument> update, UpdateOptions options = null, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return _collection.UpdateOneAsync(filter, update, options, cancellationToken).AsTimed(this);
+            return _collection.UpdateOneAsync(filter, update, options, cancellationToken).AsTimedTask(this,RF(filter) + " - " + update.ToJson(),"UpdateOneAsync");
         }
 
         public IMongoCollection<TDocument> WithReadConcern(ReadConcern readConcern)
