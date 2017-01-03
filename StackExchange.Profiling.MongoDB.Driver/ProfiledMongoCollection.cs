@@ -380,5 +380,25 @@ namespace StackExchange.Profiling.MongoDB.Driver
         {
             return new ProfiledMongoCollection<TDocument>(_collection.WithWriteConcern(writeConcern));
         }
+
+        public DeleteResult DeleteMany(FilterDefinition<TDocument> filter, DeleteOptions options, CancellationToken cancellationToken = default(CancellationToken))
+        {
+            return _collection.DeleteMany(filter, options, cancellationToken);
+        }
+
+        public Task<DeleteResult> DeleteManyAsync(FilterDefinition<TDocument> filter, DeleteOptions options, CancellationToken cancellationToken = default(CancellationToken))
+        {
+            return _collection.DeleteManyAsync(filter, options, cancellationToken);
+        }
+
+        public DeleteResult DeleteOne(FilterDefinition<TDocument> filter, DeleteOptions options, CancellationToken cancellationToken = default(CancellationToken))
+        {
+            return _collection.DeleteOne(filter, options, cancellationToken);
+        }
+
+        public Task<DeleteResult> DeleteOneAsync(FilterDefinition<TDocument> filter, DeleteOptions options, CancellationToken cancellationToken = default(CancellationToken))
+        {
+            return _collection.DeleteOneAsync(filter, options, cancellationToken);
+        }
     }
 }
